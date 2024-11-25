@@ -186,7 +186,8 @@ def main():
     for bookmark in bookmarks:
         doc_info = fetch_google_doc_info(bookmark['url'], creds)
         print(f'Got {bookmark["title"]} - {doc_info["owner"]} {doc_info["modified_date"][:10]}')
-        doc_info["url"]=bookmark["url"]
+        doc_info["url"]=bookmark["url"]+"&unique_salt="+str(uuid.uuid4())[:4]
+        # Add random salt to URL to stop Instapaper from deleting the original bookmark (Instapaper dedup)
         docs_info.append(doc_info)
 
     # Step 5: Sort bookmarks by modify date
@@ -201,7 +202,7 @@ def main():
     for doc in docs_info:
         title = f"{doc['title']} - {doc['owner']} - {doc['modified_date'][:10]}"
         description = f"{doc['title']} - {doc['owner']}<br>\n{doc['modified_date'][:10]}<br>\n<a href=\"{doc['url']}\">{doc['url']}</a><br>"
-        print(f'Adding {doc["modified_date"][:10]} - {doc["title"]}')
+        print(f'Adding {doc["modified_date"][:10]} - {doc["title"]} - {doc["owner"]}')
         save_instapaper_bookmark(session, new_folder_id, doc['url'], title, description)
         time.sleep(1) # delay because Instapaper adds them asynchronously sometimes out of order
         # TODO: replace sleep(1) with check for bookmark existing before moving to next one
