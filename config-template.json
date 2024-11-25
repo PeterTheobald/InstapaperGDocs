@@ -1,0 +1,8 @@
+{
+    "INSTAPAPER_CONSUMER_KEY" : "from https://www.instapaper.com/main/request_oauth_consumer_token",
+    "INSTAPAPER_CONSUMER_SECRET" : "from-Instapaper-signup",
+    "INSTAPAPER_USERNAME" : "from Instapaper",
+    "INSTAPAPER_PASSWORD" : "from Instapaper",
+    "GOOGLE_CREDENTIALS_PATH" : "google-cred.json",
+    "GOOGLE_AUTHORIZED_USER_PATH" : "google-authorized-user.json"
+}

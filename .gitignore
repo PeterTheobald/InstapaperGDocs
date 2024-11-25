@@ -1,0 +1,4 @@
+venv/
+config.json
+google-cred.json
+google-authorized-user.json
