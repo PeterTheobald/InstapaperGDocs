@@ -91,7 +91,7 @@ def get_instapaper_folder_id(session, folder_name):
         for folder in folders:
             if folder.get("type") == "folder" and folder.get("title") == folder_name:
                 return folder.get("folder_id")
-        raise Exception(f"Folder '{folder_name}' not found.")
+        return None
     else:
         raise Exception(f"Failed to fetch folders: {response.text}")
 
@@ -99,6 +99,8 @@ def get_instapaper_bookmarks(session, folder_name):
     """Retrieve bookmarks from a specific Instapaper folder by its name."""
     # Get the numerical ID of the folder
     folder_id = get_instapaper_folder_id(session, folder_name)
+    if not folder_id:
+        raise Exception(f"No such folder named {folder_name}")
     
     # Fetch bookmarks from the folder
     url = "https://www.instapaper.com/api/1/bookmarks/list"
@@ -152,7 +154,7 @@ def main():
         help="The name of the Instapaper folder to scan"
     )
     parser.add_argument(
-        "--new_folder_name",
+        "--target",
         type=str,
         default=None,
         help="The name of the new Instapaper folder to create (optional)"
@@ -160,7 +162,7 @@ def main():
     args = parser.parse_args()
 
     folder_name = args.folder_name
-    new_folder_name = args.new_folder_name or generate_unique_folder_name(folder_name)
+    new_folder_name = args.target or generate_unique_folder_name(folder_name)
     print(f"Scanning folder: {folder_name}")
     print(f"New folder name: {new_folder_name}")
 
@@ -191,7 +193,9 @@ def main():
     docs_info.sort(key=lambda x: x['modified_date'])
 
     # Step 6: Create a new Instapaper folder
-    new_folder_id = create_instapaper_folder(session, new_folder_name)
+    new_folder_id = get_instapaper_folder_id(session, new_folder_name)
+    if not new_folder_id:
+        new_folder_id = create_instapaper_folder(session, new_folder_name)
 
     # Step 7: Save new bookmarks
     for doc in docs_info:

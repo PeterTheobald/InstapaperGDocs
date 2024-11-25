@@ -1,4 +1,6 @@
 venv/
+venv_win/
+venv_linux/
 config.json
 google-cred.json
 google-authorized-user.json
