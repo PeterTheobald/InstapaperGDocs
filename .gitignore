@@ -1,6 +1,7 @@
 venv/
 venv_win/
 venv_linux/
+output/
 config.json
 google-cred.json
 google-authorized-user.json

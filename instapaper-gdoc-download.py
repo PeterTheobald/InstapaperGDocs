@@ -1,12 +1,16 @@
 import os
 import json
-import time
 import argparse
-import uuid
 from requests_oauthlib import OAuth1Session
-from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
+
+"""
+Instapaper-gdoc-download.py
+Scans an Instapaper folder and downloads all of the Google Docs linked in the bookmarks
+"""
 
 # Load configuration from external file
 with open("config.json", "r") as config_file:
@@ -64,6 +68,40 @@ def generate_google_authorized_user():
     with open(GOOGLE_AUTHORIZED_USER_PATH, "w") as token_file:
         token_file.write(creds.to_json())
     return creds
+
+
+def download_gdoc(doc_url: str, title: str, save_folder: str, creds):
+    """Download Google Doc to current directory"""
+    try:
+        # Extract the document ID from the URL
+        doc_id = doc_url.split("/d/")[1].split("/")[0]
+
+        # Build the Drive API service
+        service = build("drive", "v3", credentials=creds)
+
+        # Set the desired export MIME type (Word document)
+        mime_type = (
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+        request = service.files().export_media(fileId=doc_id, mimeType=mime_type)
+
+        # Define the output file path
+        output_file_path = os.path.join(save_folder, f"{title}.docx")
+
+        # Download the file
+        with open(output_file_path, "wb") as file_handle:
+            downloader = MediaIoBaseDownload(file_handle, request)
+            done = False
+            while not done:
+                status, done = downloader.next_chunk()
+                print(f"Download progress: {int(status.progress() * 100)}%")
+
+        print(f"Google Doc downloaded successfully as '{output_file_path}'")
+        return output_file_path
+
+    except Exception as e:
+        print(f"Error downloading Google Doc: {e}")
+        return None
 
 
 def fetch_google_doc_info(doc_url, creds):
@@ -131,57 +169,25 @@ def get_instapaper_bookmarks(session, folder_name):
         raise Exception(f"Failed to fetch bookmarks: {response.text}")
 
 
-def create_instapaper_folder(session, folder_name):
-    """Create a new Instapaper folder."""
-    url = "https://www.instapaper.com/api/1/folders/add"
-    response = session.post(url, data={"title": folder_name})
-    if response.status_code == 200:
-        return response.json()[0]["folder_id"]
-    else:
-        raise Exception(f"Failed to create folder: {response.text}")
-
-
-def save_instapaper_bookmark(session, folder_id, url, title, description):
-    """Save a bookmark to Instapaper."""
-    api_url = "https://www.instapaper.com/api/1/bookmarks/add"
-    data = {
-        "url": url,
-        "title": title,
-        "description": description,
-        "content": description,
-        "folder_id": folder_id,
-    }
-    response = session.post(api_url, data=data)
-    if response.status_code != 200:
-        raise Exception(f"Failed to save bookmark: {response.text}")
-
-
-def generate_unique_folder_name(base_name):
-    """Generate a unique folder name based on the base name."""
-    unique_suffix = str(uuid.uuid4())[:4]  # Generate a short unique identifier
-    return f"{base_name}-{unique_suffix}"
-
-
 def main():
     # Parse command-line arguments
     parser = argparse.ArgumentParser(
-        description="Scan Instapaper folder for Google Docs and copy them in mod-time order to a new folder."
+        description="Scan Instapaper folder for Google Docs and downloads them"
     )
     parser.add_argument(
-        "folder_name", type=str, help="The name of the Instapaper folder to scan"
+        "folder", type=str, help="The name of the Instapaper folder to scan"
     )
     parser.add_argument(
-        "--target",
+        "save_folder",
         type=str,
-        default=None,
-        help="The name of the new Instapaper folder to create (optional)",
+        help="Destination folder to save downloaded Google Docs to",
     )
+    # TODO: Add option to specify doc download destination folder
     args = parser.parse_args()
 
-    folder_name = args.folder_name
-    new_folder_name = args.target or generate_unique_folder_name(folder_name)
-    print(f"Scanning folder: {folder_name}")
-    print(f"New folder name: {new_folder_name}")
+    folder = args.folder
+    save_folder = args.save_folder
+    print(f"Scanning folder: {folder}, downloading docs to {save_folder}")
 
     # Step 1: Get Instapaper OAuth tokens
     oauth_token, oauth_token_secret = get_instapaper_access_token()
@@ -198,37 +204,15 @@ def main():
         creds = generate_google_authorized_user()
 
     # Step 3: Fetch Instapaper bookmarks
-    bookmarks = get_instapaper_bookmarks(session, folder_name=folder_name)
+    bookmarks = get_instapaper_bookmarks(session, folder_name=folder)
 
-    # Step 4: Retrieve details from Google Docs
-    docs_info = []
+    # Step 4: Retrieve details from Google Docs and Download doc
+    # Note: This always adds the author and date to the title
+    # TODO: Add option to use actual title or append author and/or date
     for bookmark in bookmarks:
-        doc_info = fetch_google_doc_info(bookmark["url"], creds)
-        print(
-            f'Got {bookmark["title"]} - {doc_info["owner"]} {doc_info["modified_date"][:10]}'
-        )
-        doc_info["url"] = bookmark["url"] + "&unique_salt=" + str(uuid.uuid4())[:4]
-        # Add random salt to URL to stop Instapaper from deleting the original bookmark (Instapaper dedup)
-        docs_info.append(doc_info)
-
-    # Step 5: Sort bookmarks by modify date
-    docs_info.sort(key=lambda x: x["modified_date"])
-
-    # Step 6: Create a new Instapaper folder
-    new_folder_id = get_instapaper_folder_id(session, new_folder_name)
-    if not new_folder_id:
-        new_folder_id = create_instapaper_folder(session, new_folder_name)
-
-    # Step 7: Save new bookmarks
-    for doc in docs_info:
-        title = f"{doc['title']} - {doc['owner']} - {doc['modified_date'][:10]}"
-        description = f"{doc['title']} - {doc['owner']}<br>\n{doc['modified_date'][:10]}<br>\n<a href=\"{doc['url']}\">{doc['url']}</a><br>"
-        print(f'Adding {doc["modified_date"][:10]} - {doc["title"]} - {doc["owner"]}')
-        save_instapaper_bookmark(session, new_folder_id, doc["url"], title, description)
-        time.sleep(
-            1
-        )  # delay because Instapaper adds them asynchronously sometimes out of order
-        # TODO: replace sleep(1) with check for bookmark existing before moving to next one
+        # doc_info = fetch_google_doc_info(bookmark["url"], creds)
+        print(f'Got {bookmark["title"]}')
+        download_gdoc(bookmark["url"], bookmark["title"], save_folder, creds)
 
 
 if __name__ == "__main__":
